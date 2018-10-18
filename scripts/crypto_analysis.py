@@ -142,7 +142,7 @@ def compute_relative_span(df_daily_crypto):
     df_weekly_close_value_max
     df_weekly_close_value_max.index = pd.to_datetime(df_weekly_close_value_max.index, unit='s')
     df_weekly_close_value_max['relative_span'] = df_weekly_close_value_max[['close_weekly_max_price','close_weekly_min_price']].apply(relative_span_calc,axis=1)
-    print('The week {0} has the greates relative_span = {1}.'.format(df_weekly_close_value_max['relative_span'].idxmax(),df_weekly_close_value_max['relative_span'].max()))
+    print('The week {0} that finalized on Sunday has the greates relative_span = {1}.'.format(df_weekly_close_value_max['relative_span'].idxmax(),df_weekly_close_value_max['relative_span'].max()))
 
 #Main function to call
 #Calculates Weekly average and save on disk.
@@ -153,7 +153,7 @@ def compute_statistics_from_dataset():
         api_key  = os.environ['API_KEY']
         dir_name = os.environ['FOLDER_NAME']
 
-        json_data = get_data_from_api()
+        json_data = get_data_from_api(api_key)
 
         if (len(json_data) > 1) and (json_data.get(error_tag) is None) :
             crypto_daily_dataframe = get_dataframe_from_json(json_data,asc_order)
