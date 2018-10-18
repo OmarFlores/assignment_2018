@@ -5,6 +5,7 @@
 
 
 #Main Libs
+import os
 import sys
 import pandas as pd;
 import json;
@@ -12,7 +13,6 @@ import requests;
 from datetime import datetime, timedelta
 
 #Todo: create enviromental variables in Docker
-api_token      = ''
 api_url_base   = 'https://www.alphavantage.co/query'
 function_token = 'DIGITAL_CURRENCY_DAILY'
 symbol_token   = 'BTC'
@@ -20,6 +20,7 @@ market_token   = 'USD'
 asc_order      = True
 desc_order     = False
 error_tag      = 'Error Message'
+path_to_store = 'temp_records'
 headers = {'Content-Type': 'application/json'}
 file_data_columns = ["timestamp",
                 "1a. open (USD)",
@@ -34,7 +35,7 @@ file_data_columns = ["timestamp",
                     "6. market cap (USD)"]
 
 #Function that request information from the API in JSON format
-def get_data_from_api():
+def get_data_from_api(api_token):
     try:
         payload = {'function':function_token, 'symbol':symbol_token, 'market':market_token,'apikey':api_token}
         response = requests.get(api_url_base ,params=payload)
@@ -106,7 +107,7 @@ def get_dataframe_from_json(json_data,sort_asc_desc):
 def save_dataFrame_to_csv(filename,path,df_crypto_prices,index_flag):
     try:
         timestamp_for_file = int((datetime.now() - datetime.utcfromtimestamp(0)).total_seconds())
-        file_name_crypto_csv = '{0}_{1}.csv'.format(filename,timestamp_for_file)
+        file_name_crypto_csv = '{0}/{1}_{2}.csv'.format(path,filename,timestamp_for_file)
         df_crypto_prices.to_csv(file_name_crypto_csv,encoding='utf-8',index=index_flag)
     except Exception as e:
         print("[?] Error: creating the file {0} {1}. More information {2}".format(filename,path,e) )
@@ -147,13 +148,18 @@ def compute_relative_span(df_daily_crypto):
 #Calculates Weekly average and save on disk.
 #And Calculates relative span for each week and prints the highest week with relative span in the dataset.
 def compute_statistics_from_dataset():
-    json_data = get_data_from_api()
+
     try:
+        api_key  = os.environ['API_KEY']
+        dir_name = os.environ['FOLDER_NAME']
+
+        json_data = get_data_from_api()
+
         if (len(json_data) > 1) and (json_data.get(error_tag) is None) :
             crypto_daily_dataframe = get_dataframe_from_json(json_data,asc_order)
             #Save file with the daily records in a CSV file
             filename = '{0}_{1}_{2}'.format(function_token,symbol_token,market_token)
-            is_created = save_dataFrame_to_csv(filename,'./',crypto_daily_dataframe,False)
+            is_created = save_dataFrame_to_csv(filename,dir_name,crypto_daily_dataframe,False)
 
             if is_created is not False:
                 print('{0} file has been created'.format(filename))
@@ -161,7 +167,7 @@ def compute_statistics_from_dataset():
             crypto_daily_dataframe = get_dataFrame_transformed(crypto_daily_dataframe)
             df_weekly_close_value = get_weekly_average_dataFrame(crypto_daily_dataframe)
             filename = 'WEEKLY_AVERAGE_PRICE_{0}_{1}'.format(symbol_token,market_token)
-            is_created = save_dataFrame_to_csv(filename,'./',df_weekly_close_value,True)
+            is_created = save_dataFrame_to_csv(filename,dir_name,df_weekly_close_value,True)
 
             if is_created is not False:
                 print('{0} file has been created'.format(filename))
@@ -173,3 +179,8 @@ def compute_statistics_from_dataset():
             print('[?] Unexpected Error querying the API, error message: {0}'.format(json_data[error_tag]))
     except TypeError:
         print('[?] Unexpected Error: {0}'.format(api_url_base))
+    except KeyError:
+        print('[?] Enviroment Error: Be sure you are adding correctly the API_KEY and FILE_NAME variables.')
+
+print("Computing calculations in the crypto dataset...")
+compute_statistics_from_dataset()
