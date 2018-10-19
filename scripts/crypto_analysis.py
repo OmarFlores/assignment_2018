@@ -7,22 +7,25 @@
 #Main Libs
 import os
 import sys
-import pandas as pd;
-import json;
-import requests;
+import traceback
+import pandas as pd
+import json
+import requests
+from requests import exceptions
 from datetime import datetime, timedelta
 
-#Todo: create enviromental variables in Docker
-api_url_base   = 'https://www.alphavantage.co/query'
-function_token = 'DIGITAL_CURRENCY_DAILY'
-symbol_token   = 'BTC'
-market_token   = 'USD'
-asc_order      = True
-desc_order     = False
-error_tag      = 'Error Message'
-path_to_store = 'temp_records'
+
+#CONSTANT VARIABLES
+API_URL_BASE   = 'https://www.alphavantage.co/query'
+FUNCTION_TOKEN = 'DIGITAL_CURRENCY_DAILY'
+SYMBOL_TOKEN   = 'BTC'
+MARKET_TOKEN   = 'USD'
+ASC_ORDER      = True
+DESC_ORDER     = False
+ERROR_TAG_JSON_PROP = 'Error Message'
+PATH_TO_STORE = 'temp_records'
 headers = {'Content-Type': 'application/json'}
-file_data_columns = ["timestamp",
+FILE_DATA_COLUMNS = ["timestamp",
                 "1a. open (USD)",
                     "1b. open (USD)",
                     "2a. high (USD)",
@@ -37,8 +40,8 @@ file_data_columns = ["timestamp",
 #Function that request information from the API in JSON format
 def get_data_from_api(api_token):
     try:
-        payload = {'function':function_token, 'symbol':symbol_token, 'market':market_token,'apikey':api_token}
-        response = requests.get(api_url_base ,params=payload)
+        payload = {'function':FUNCTION_TOKEN, 'symbol':SYMBOL_TOKEN, 'market':MARKET_TOKEN,'apikey':api_token}
+        response = requests.get(API_URL_BASE,params=payload)
 
         if response.status_code >= 500:
             print('[!] [{0}] Server Error'.format(response.status_code))
@@ -61,7 +64,7 @@ def get_data_from_api(api_token):
             return json_data
         else:
             print('[?] Unexpected Error: [HTTP {0}]: Content: {1}'.format(response.status_code, response.content))
-    except requests.exceptions.ConnectionError as e:
+    except exceptions.ConnectionError as e:
         print('[?] Connection Error: Check out internet connection or port access {0}'.format(e))
         response = 'No response'
         return None
@@ -75,8 +78,8 @@ def get_data_from_api(api_token):
 #       sort_asc_desc = True for ascending or False for descending sorting
 
 def get_dataframe_from_json(json_data,sort_asc_desc):
-    time_series_api_tag = 'Time Series (Digital Currency Daily)'
-    json_object_columns = ["1a. open (USD)",
+    TIME_SERIES_API_TAG = 'Time Series (Digital Currency Daily)'
+    JSON_OBJECT_COLUMNS = ["1a. open (USD)",
                     "1b. open (USD)",
                     "2a. high (USD)",
                     "2b. high (USD)",
@@ -87,24 +90,24 @@ def get_dataframe_from_json(json_data,sort_asc_desc):
                     "5. volume",
                     "6. market cap (USD)"]
 
-    time_series_json_data = json_data[time_series_api_tag]
+    time_series_json_data = json_data[TIME_SERIES_API_TAG]
     daily_crypto_records_list = [];
 
     for timestamp_cryptocurrency in time_series_json_data:
         selected_row = []
         selected_row.append(pd.to_datetime(timestamp_cryptocurrency))
-        for item in json_object_columns:
+        for item in JSON_OBJECT_COLUMNS:
             selected_row.append(float(time_series_json_data[timestamp_cryptocurrency][item]))
         daily_crypto_records_list.append(selected_row)
 
-    daily_crypto_dataframe = pd.DataFrame(data=daily_crypto_records_list,columns=file_data_columns).sort_values([file_data_columns[0]],ascending=sort_asc_desc)
+    daily_crypto_dataframe = pd.DataFrame(data=daily_crypto_records_list,columns=FILE_DATA_COLUMNS).sort_values([FILE_DATA_COLUMNS[0]],ascending=sort_asc_desc)
 
     return daily_crypto_dataframe
 
 #Save a dataframe to CSV file
 #Params: filename = name of the file, path = place to stare the file,
 #       df_crypto_prices = pandas dataframe, index_flag = True to store indexs or False to not save index
-def save_dataFrame_to_csv(filename,path,df_crypto_prices,index_flag):
+def save_dataframe_to_csv(filename,path,df_crypto_prices,index_flag):
     try:
         timestamp_for_file = int((datetime.now() - datetime.utcfromtimestamp(0)).total_seconds())
         file_name_crypto_csv = '{0}/{1}_{2}.csv'.format(path,filename,timestamp_for_file)
@@ -112,19 +115,23 @@ def save_dataFrame_to_csv(filename,path,df_crypto_prices,index_flag):
     except Exception as e:
         print("[?] Error: creating the file {0} {1}. More information {2}".format(filename,path,e) )
         return False
-    return True
+    return file_name_crypto_csv
 
 #Function which is used in lambda function to compute relative_span per each week data
 def relative_span_calc(cols):
     return ((cols['close_weekly_max_price']-cols['close_weekly_min_price'])/cols['close_weekly_min_price'])
 
 #Add timestamp from dataset as an index and drop unused columns
-#Params: df_daily_crypto = pandas dataframe
+#Params: df_daily_crypto = pandas dataframe with dayly close price values.
 def get_dataFrame_transformed(df_daily_crypto):
-    df_daily_crypto['date_minus_time'] = df_daily_crypto["timestamp"].apply( lambda df_daily_crypto : datetime(year=df_daily_crypto.year, month=df_daily_crypto.month, day=df_daily_crypto.day))
-    df_daily_crypto.set_index(df_daily_crypto["date_minus_time"],inplace=True)
+    df_daily_crypto['date_time_index'] = df_daily_crypto["timestamp"].apply( lambda df_daily_crypto : datetime(year=df_daily_crypto.year, month=df_daily_crypto.month, day=df_daily_crypto.day))
+    df_daily_crypto.set_index(df_daily_crypto["date_time_index"],inplace=True)
     return df_daily_crypto
 
+#Function which get weekly average and returns a dataframe with:
+# DatetimeIndex and the close weekly caluclations taking
+# as a base '4a. close (USD)' (value from the data API) values
+#Params: df_daily_crypto = pandas dataframe
 def get_weekly_average_dataFrame(df_daily_crypto):
     df_daily_crypto = df_daily_crypto['4a. close (USD)'].astype('float')
     df_weekly_close_value = pd.Series.to_frame(df_daily_crypto.resample('W').mean())
@@ -133,16 +140,18 @@ def get_weekly_average_dataFrame(df_daily_crypto):
 
 #Computes the relative_span for all the data contained in the DataFrame And
 #Prints the week with the highest relative_span
-def compute_relative_span(df_daily_crypto):
-    df_weekly_close_value_max = pd.Series.to_frame(df_daily_crypto.resample('W').max())
-    df_weekly_close_value_max.columns = ['close_weekly_max_price']
+def compute_relative_span_from_dataframe(df_daily_crypto):
+    df_weekly_close_minmax = pd.Series.to_frame(df_daily_crypto.resample('W').max())
+    df_weekly_close_minmax.columns = ['close_weekly_max_price']
     df_weekly_close_value_min = pd.Series.to_frame(df_daily_crypto.resample('W').min())
     df_weekly_close_value_min.columns = ['close_weekly_min_price']
-    df_weekly_close_value_max['close_weekly_min_price'] = df_weekly_close_value_min['close_weekly_min_price']
-    df_weekly_close_value_max
-    df_weekly_close_value_max.index = pd.to_datetime(df_weekly_close_value_max.index, unit='s')
-    df_weekly_close_value_max['relative_span'] = df_weekly_close_value_max[['close_weekly_max_price','close_weekly_min_price']].apply(relative_span_calc,axis=1)
-    print('The week {0} that finalized on Sunday has the greates relative_span = {1}.'.format(df_weekly_close_value_max['relative_span'].idxmax(),df_weekly_close_value_max['relative_span'].max()))
+    df_weekly_close_minmax['close_weekly_min_price'] = df_weekly_close_value_min['close_weekly_min_price']
+    df_weekly_close_minmax.index = pd.to_datetime(df_weekly_close_minmax.index, unit='s')
+    df_weekly_close_minmax['relative_span'] = df_weekly_close_minmax[['close_weekly_max_price','close_weekly_min_price']].apply(relative_span_calc,axis=1)
+    week_datetime = df_weekly_close_minmax['relative_span'].idxmax()
+    week_datetime = '{0}-{1}-{2}'.format(week_datetime.year,week_datetime.month,week_datetime.day)
+    print('The week that finalized in \'{0}\' has the greates relative_span = {1}.'.format(week_datetime,df_weekly_close_minmax['relative_span'].max()))
+    return None
 
 #Main function to call
 #Calculates Weekly average and save on disk.
@@ -155,30 +164,31 @@ def compute_statistics_from_dataset():
 
         json_data = get_data_from_api(api_key)
 
-        if (len(json_data) > 1) and (json_data.get(error_tag) is None) :
-            crypto_daily_dataframe = get_dataframe_from_json(json_data,asc_order)
+
+        if (len(json_data) > 1) and (json_data.get(ERROR_TAG_JSON_PROP) is None) :
+            crypto_daily_dataframe = get_dataframe_from_json(json_data,ASC_ORDER)
             #Save file with the daily records in a CSV file
-            filename = '{0}_{1}_{2}'.format(function_token,symbol_token,market_token)
-            is_created = save_dataFrame_to_csv(filename,dir_name,crypto_daily_dataframe,False)
+            filename = '{0}_{1}_{2}'.format(FUNCTION_TOKEN,SYMBOL_TOKEN,MARKET_TOKEN)
+            is_created = save_dataframe_to_csv(filename,dir_name,crypto_daily_dataframe,False)
 
             if is_created is not False:
-                print('{0} file has been created'.format(filename))
+                print('{0} file has been created'.format(is_created))
 
             crypto_daily_dataframe = get_dataFrame_transformed(crypto_daily_dataframe)
             df_weekly_close_value = get_weekly_average_dataFrame(crypto_daily_dataframe)
-            filename = 'WEEKLY_AVERAGE_PRICE_{0}_{1}'.format(symbol_token,market_token)
-            is_created = save_dataFrame_to_csv(filename,dir_name,df_weekly_close_value,True)
+            filename = 'WEEKLY_AVERAGE_PRICE_{0}_{1}'.format(SYMBOL_TOKEN,MARKET_TOKEN)
+            is_created = save_dataframe_to_csv(filename,dir_name,df_weekly_close_value,True)
 
             if is_created is not False:
-                print('{0} file has been created'.format(filename))
+                print('{0} file has been created'.format(is_created))
 
-            #Compute weekly average and save the file
             crypto_daily_dataframe = crypto_daily_dataframe['4a. close (USD)'].astype('float')
-            compute_relative_span(crypto_daily_dataframe)
+            compute_relative_span_from_dataframe(crypto_daily_dataframe)
         else:
-            print('[?] Unexpected Error querying the API, error message: {0}'.format(json_data[error_tag]))
-    except TypeError:
-        print('[?] Unexpected Error: {0}'.format(api_url_base))
+            print('[?] get_data_from_api - Unexpected Error querying the API, error message: {0}'.format(json_data[ERROR_TAG_JSON_PROP]))
+    except TypeError as e:
+        tracing_error_module = traceback.format_exc()
+        print('[?] Unexpected Error: \n {0}'.format(tracing_error_module))
     except KeyError:
         print('[?] Enviroment Error: Be sure you are adding correctly the API_KEY and FILE_NAME variables.')
 
